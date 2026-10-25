@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#2f7a56">
+  <meta name="description" content="培玉 CS：从好奇出发，用短讲解、交互实验和即时练习探索计算机科学。">
+  <title>培玉 CS · 让计算机科学变得直观</title>
+  <link rel="icon" href="./logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./labs.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <div id="app"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="search-dialog" aria-labelledby="search-title">
+    <div class="search-heading"><h2 id="search-title">找到你的下一个问题</h2><button class="icon-button" data-close-search aria-label="关闭搜索">×</button></div>
+    <label class="search-input-wrap"><span aria-hidden="true">⌕</span><input id="global-search" type="search" placeholder="搜索课程、概念和实验…" autocomplete="off"></label>
+    <div id="search-results" aria-live="polite"></div>
+    <p class="search-foot">输入关键词搜索 · Esc 关闭</p>
+  </dialog>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
