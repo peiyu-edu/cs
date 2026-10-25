@@ -116,18 +116,18 @@ export const lessons = [
 ];
 
 export const glossary = [
-  { term: '比特', english: 'bit', definition: '二进制信息的一个位，只能取 0 或 1。', lesson: 'binary' },
-  { term: '二进制', english: 'binary', definition: '以 2 为基数的计数方式，只使用数字 0 和 1。', lesson: 'binary' },
-  { term: '位权', english: 'place value', definition: '一个数位代表的分量；二进制从右往左依次是 1、2、4、8。', lesson: 'binary' },
-  { term: '布尔值', english: 'Boolean', definition: '只有真和假两种可能的值，Python 中写作 True 和 False。', lesson: 'logic' },
-  { term: '算法', english: 'algorithm', definition: '解决一类问题的一组明确、可执行的步骤。', lesson: 'algorithm' },
-  { term: '问题分解', english: 'decomposition', definition: '把一个大问题拆成多个更容易处理的小问题。', lesson: 'algorithm' },
-  { term: '变量', english: 'variable', definition: '程序中用于关联和访问数据的名字。', lesson: 'variable' },
-  { term: '赋值', english: 'assignment', definition: '把一个值与变量名关联；Python 使用单个等号。', lesson: 'variable' },
-  { term: '条件分支', english: 'conditional', definition: '根据条件的真假，选择要执行的代码路径。', lesson: 'condition' },
-  { term: '循环', english: 'loop', definition: '按规则重复执行一段代码的结构。', lesson: 'loop' },
-  { term: '二分查找', english: 'binary search', definition: '在有序数据中比较中间值，每次排除约一半候选范围的查找方法。', lesson: 'search' },
-  { term: '时间复杂度', english: 'time complexity', definition: '描述算法所需操作量如何随输入规模增长，常用大 O 表示量级。', lesson: 'complexity' }
+  { id: '比特', term: '比特', english: 'bit', definition: '二进制信息的一个位，只能取 0 或 1。', lesson: 'binary' },
+  { id: '二进制', term: '二进制', english: 'binary', definition: '以 2 为基数的计数方式，只使用数字 0 和 1。', lesson: 'binary' },
+  { id: '位权', term: '位权', english: 'place value', definition: '一个数位代表的分量；二进制从右往左依次是 1、2、4、8。', lesson: 'binary' },
+  { id: '布尔值', term: '布尔值', english: 'Boolean', definition: '只有真和假两种可能的值，Python 中写作 True 和 False。', lesson: 'logic' },
+  { id: '算法', term: '算法', english: 'algorithm', definition: '解决一类问题的一组明确、可执行的步骤。', lesson: 'algorithm' },
+  { id: '问题分解', term: '问题分解', english: 'decomposition', definition: '把一个大问题拆成多个更容易处理的小问题。', lesson: 'algorithm' },
+  { id: '变量', term: '变量', english: 'variable', definition: '程序中用于关联和访问数据的名字。', lesson: 'variable' },
+  { id: '赋值', term: '赋值', english: 'assignment', definition: '把一个值与变量名关联；Python 使用单个等号。', lesson: 'variable' },
+  { id: '条件分支', term: '条件分支', english: 'conditional', definition: '根据条件的真假，选择要执行的代码路径。', lesson: 'condition' },
+  { id: '循环', term: '循环', english: 'loop', definition: '按规则重复执行一段代码的结构。', lesson: 'loop' },
+  { id: '二分查找', term: '二分查找', english: 'binary search', definition: '在有序数据中比较中间值，每次排除约一半候选范围的查找方法。', lesson: 'search' },
+  { id: '时间复杂度', term: '时间复杂度', english: 'time complexity', definition: '描述算法所需操作量如何随输入规模增长，常用大 O 表示量级。', lesson: 'complexity' }
 ];
 
 export const sources = [
