@@ -1,0 +1,186 @@
+/* In-lesson Python editor (Pyodide). Uses the same palette as style.css. */
+.py-lab {
+  border: 1px solid #d9e4db;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.py-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #e4ece1;
+  background: #f7faf7;
+  font-size: 11px;
+}
+
+.py-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.py-file .icon { width: 14px; height: 14px; color: var(--green); }
+
+.py-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.py-status::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #c3cec6;
+}
+
+.py-status[data-state="loading"]::before { background: var(--gold); animation: py-pulse 1s ease-in-out infinite; }
+.py-status[data-state="ready"]::before { background: var(--green); }
+.py-status[data-state="failed"]::before { background: #b5532f; }
+
+@keyframes py-pulse { 50% { opacity: .3; } }
+
+.py-editor {
+  display: flex;
+  background: #fff;
+}
+
+.py-gutter,
+.py-code {
+  margin: 0;
+  padding: 14px 0;
+  font: 13px/1.75 ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
+}
+
+.py-gutter {
+  flex: none;
+  min-width: 40px;
+  padding-right: 10px;
+  padding-left: 10px;
+  text-align: right;
+  color: #a9b8ac;
+  background: #f7faf7;
+  border-right: 1px solid #edf2ec;
+  user-select: none;
+}
+
+.py-code {
+  flex: 1;
+  min-width: 0;
+  padding-left: 14px;
+  padding-right: 14px;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: pre;
+  color: var(--ink);
+  background: transparent;
+  tab-size: 4;
+}
+
+.py-editor:focus-within { box-shadow: inset 0 0 0 2px #bd994d; }
+
+.py-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid #edf2ec;
+}
+
+.py-actions .button { min-height: 38px; padding: 8px 16px; }
+.py-actions .button .icon { width: 14px; height: 14px; }
+.py-actions .button:disabled { opacity: .6; cursor: progress; }
+
+.py-kbd {
+  margin-left: auto;
+  font-size: 10px;
+  color: #a1afa4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.py-output-wrap { padding: 0 14px 14px; }
+
+.py-output-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: var(--muted);
+}
+
+.py-output {
+  min-height: 64px;
+  max-height: 320px;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border: 1px solid #e4ece1;
+  border-radius: 7px;
+  background: #f4f7f3;
+  color: #8a9a8d;
+  font: 12.5px/1.75 ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.py-output.running { color: var(--muted); }
+.py-output.ok { color: var(--ink); background: #f7faf7; }
+.py-output.error { color: #9a3f22; background: #fbf4f0; border-color: #f0dcd2; }
+
+.py-hint {
+  display: block;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e8cfc3;
+  color: #6b4a3a;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+}
+
+.py-challenge {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border-top: 1px solid #edf2ec;
+  background: #fbf8f1;
+  color: #6f5a35;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.py-challenge .icon { flex: none; width: 15px; height: 15px; margin-top: 3px; color: var(--gold); }
+.py-challenge strong { margin-right: 8px; color: var(--gold); }
+
+.py-fallback { padding: 14px; border-top: 1px solid #edf2ec; }
+
+.py-try { margin-top: 8px; color: var(--green); }
+.py-try .icon { width: 13px; height: 13px; }
+.py-try:hover { color: var(--green-dark); text-decoration: underline; }
+
+@media (max-width: 680px) {
+  .py-bar { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .py-status { text-align: left; }
+  .py-gutter, .py-code { font-size: 12px; }
+  .py-gutter { min-width: 32px; padding-left: 6px; padding-right: 6px; }
+  .py-code { padding-left: 10px; }
+  .py-kbd { display: none; }
+  .py-output { font-size: 11.5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .py-status[data-state="loading"]::before { animation: none; }
+}

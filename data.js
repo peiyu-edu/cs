@@ -50,6 +50,7 @@ export const lessons = [
       { title: '赋值不会自动建立公式', body: '对于这里的整数例子，backup = score 让 backup 关联到当时的整数值。之后给 score 重新赋值，backup 不会随之改变。它不是一条会持续更新的电子表格公式。', code: 'score = 3\nbackup = score\nscore = 5\nprint(backup)  # 输出 3' }
     ],
     takeaways: ['变量名让程序能够访问一个值。', '赋值先计算右边，再更新左边的关联。', '整数变量的赋值不会建立自动更新的公式。'],
+    playground: { code: 'score = 10\nprint("开始时 score =", score)\n\nscore = score + 5\nprint("答对一题后 score =", score)\n\nbackup = score\nscore = 0\nprint("score =", score, "backup =", backup)', challenge: '只改第一行，让最后一行显示 backup = 100。先算一算，再运行验证。' },
     prediction: { prompt: '程序先执行 score = 10，再执行 score = score + 5。接下来 print(score) 会输出什么？', options: ['10', '15', '5'], answer: 1, explanation: '右边先计算当前值 10 + 5，得到 15，再把 score 更新为 15。原来的值不会让表达式变成数学矛盾。' },
     question: { prompt: '执行 x = 4、y = x、x = x + 1 后，y 的值是多少？', options: ['5', '4', '1', '无法确定'], answer: 1, hint: '执行 y = x 时，x 关联的是哪个整数？后来有没有重新给 y 赋值？', explanation: 'y = x 时，y 关联到整数 4。后来更新的是 x，没有给 y 重新赋值，所以 y 仍然是 4。' }
   },
@@ -62,6 +63,7 @@ export const lessons = [
       { title: '多个条件，按顺序检查', body: '需要多个分支时可以使用 elif。程序从上到下检查条件，执行第一个满足条件的分支后，就跳过同一组中剩下的 elif 和 else。安排条件顺序时，要留意范围是否重叠。' }
     ],
     takeaways: ['if 根据条件真假选择代码块。', '缩进表示哪些语句属于同一个分支。', 'if / elif / else 只执行第一个满足条件的分支。'],
+    playground: { code: 'score = 75\n\nif score >= 90:\n    print("优秀")\nelif score >= 60:\n    print("通过")\nelse:\n    print("再练习一次")', challenge: '把 score 分别改成 90、60、59，先预测输出再运行。然后交换前两个分支的顺序，看看 90 分会输出什么。' },
     prediction: { prompt: 'score = 90，程序先判断 if score >= 60 输出“通过”，再用 elif score >= 90 输出“优秀”。实际输出什么？', options: ['优秀', '通过和优秀', '通过'], answer: 2, explanation: '第一个条件已经成立，程序执行“通过”后跳过同一组的 elif。若想优先判断“优秀”，应把 >= 90 放在前面。' },
     question: { prompt: 'score = 59 时，执行示例中的 if score >= 60 / else，会输出什么？', options: ['通过', '两句都会输出', '再练习一次', '什么也不输出'], answer: 2, hint: '59 是否大于或等于 60？条件为假时会走哪个分支？', explanation: '59 >= 60 为 False，所以跳过 if 的代码，执行 else 分支，输出“再练习一次”。' }
   },
@@ -74,6 +76,7 @@ export const lessons = [
       { title: '让结果一点点积累', body: '累加器先设为 0，再在每次循环中加上当前数字。初始化要放在循环外，否则每轮都会把之前的结果清空。', code: 'total = 0\nfor number in range(1, 4):\n    total = total + number\nprint(total)  # 输出 6' }
     ],
     takeaways: ['for 依次取出元素，再执行循环体。', 'range 包含起点，但不包含终点。', '累加器在循环外初始化，在循环内更新。'],
+    playground: { code: 'total = 0\nfor number in range(1, 6):\n    total = total + number\n    print("加上", number, "后，total =", total)\n\nprint("最后 total =", total)', challenge: '改动 range，算出 1 到 100 的和。再想办法只打印最后的结果。' },
     prediction: { prompt: '执行 for number in range(3): print(number)，第一行和最后一行分别是什么？', options: ['0 和 2', '1 和 3', '0 和 3'], answer: 0, explanation: 'range(3) 默认从 0 开始，终点 3 不包含在内，实际依次输出 0、1、2。' },
     question: { prompt: '示例的 total 从 0 开始，依次加上 range(1, 4) 中的数，最后是多少？', options: ['6', '10', '4', '3'], answer: 0, hint: 'range(1, 4) 不包含 4。把实际遍历的三个数加起来。', explanation: '循环依次处理 1、2、3，total 的变化是 0 → 1 → 3 → 6，所以最后输出 6。' }
   },

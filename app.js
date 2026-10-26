@@ -1,6 +1,7 @@
 import * as zhContent from './data.js';
 import * as enContent from './data.en.js';
 import { mountLab } from './labs.js';
+import { runPython, preloadPython, pythonStatus, onPythonStatus, errorHint, TIMEOUT_MS } from './pyrunner.js';
 import { t, getLanguage, setLanguage, syncDocumentLanguage } from './i18n.js';
 
 let content, modules, lessons, glossary, sources;
@@ -33,17 +34,18 @@ const icons = {
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.01"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   close: '<path d="m6 6 12 12M18 6 6 18"/>',
-  download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>'
+  download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
+  play: '<path d="M7 4.5v15l12-7.5z"/>'
 };
 const icon = (name, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.code}</svg>`;
-const fresh = () => ({ visited: [], mastered: [], bookmarks: [], answers: {}, predictions: {}, notes: {}, cards: [], last: null, activity: [] });
+const fresh = () => ({ visited: [], mastered: [], bookmarks: [], answers: {}, predictions: {}, notes: {}, code: {}, cards: [], last: null, activity: [] });
 let state = fresh();
 try {
   const stored = JSON.parse(localStorage.getItem('peiyu-cs-v1') || 'null');
   if (stored && typeof stored === 'object') {
     state = { ...fresh(), ...stored };
     for (const key of ['visited', 'mastered', 'bookmarks', 'cards', 'activity']) if (!Array.isArray(state[key])) state[key] = [];
-    for (const key of ['answers', 'predictions', 'notes']) if (!state[key] || typeof state[key] !== 'object' || Array.isArray(state[key])) state[key] = {};
+    for (const key of ['answers', 'predictions', 'notes', 'code']) if (!state[key] || typeof state[key] !== 'object' || Array.isArray(state[key])) state[key] = {};
   }
 } catch { /* Learning remains available when browser storage is unavailable. */ }
 // Old card records used the Chinese term, now kept as the stable ID in both languages.
@@ -183,6 +185,63 @@ function runMini(el) {
   $('[data-mini-output]',el).textContent=invalid?t(`请输入 ${c.min} 到 ${c.max} 之间的整数。`,`Enter an integer from ${c.min} to ${c.max}.`):miniText(id,value);
   input.setAttribute('aria-invalid',String(invalid));
 }
+// Python lessons: a small editor backed by Pyodide (see pyrunner.js).
+const pyCode = l => state.code[l.id] ?? l.playground.code;
+const pyLines = code => code.split('\n').length;
+const pyGutter = code => Array.from({length:pyLines(code)},(_,i)=>i+1).join('\n');
+const pyPrompt = () => t('先预测会输出什么，再点击「运行」。','Predict the output, then press Run.');
+function pyStatusText(status) {
+  return {idle:t('点击运行即可加载 Python（首次约 10 MB）','Python loads when you run (about 10 MB the first time)'),loading:t('正在加载 Python…','Loading Python…'),ready:t('Python 3.12 已就绪','Python 3.12 ready'),failed:t('Python 未能加载，可以重试','Python could not load. You can retry.')}[status];
+}
+function pythonLab(l) {
+  const code=pyCode(l), id=`py-code-${l.id}`, status=pythonStatus();
+  return `<div class="py-lab" data-py="${l.id}"><div class="py-bar"><span class="py-file">${icon('code')}main.py</span><span class="py-status" data-py-status data-state="${status}">${pyStatusText(status)}</span></div><div class="py-editor"><pre class="py-gutter" aria-hidden="true" data-py-gutter>${pyGutter(code)}</pre><label class="sr-only" for="${id}">${t('Python 代码','Python code')}</label><textarea id="${id}" class="py-code" data-py-code rows="${Math.max(pyLines(code),4)}" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-describedby="${id}-keys">${escape(code)}</textarea></div><p class="sr-only" id="${id}-keys">${t('Tab 键缩进。先按 Esc 再按 Tab 可以离开编辑器。按 Ctrl 或 Command 加 Enter 运行。','Tab indents. Press Esc, then Tab, to leave the editor. Press Ctrl or Command plus Enter to run.')}</p><div class="py-actions"><button class="button primary" data-py-run>${icon('play')}${t('运行','Run')}</button><button class="button secondary" data-py-reset>${t('恢复示例','Reset example')}</button><span class="py-kbd">Ctrl / ⌘ + Enter</span></div><div class="py-output-wrap"><span class="py-output-label">${t('输出','Output')}</span><pre class="py-output" data-py-output aria-live="polite">${pyPrompt()}</pre></div><p class="py-challenge">${icon('spark')}<span><strong>${t('小挑战','Challenge')}</strong>${escape(l.playground.challenge)}</span></p><div class="py-fallback" data-py-fallback hidden></div></div>`;
+}
+function syncEditor(el) {
+  const area=$('[data-py-code]',el);
+  area.rows=Math.max(pyLines(area.value),4);
+  $('[data-py-gutter]',el).textContent=pyGutter(area.value);
+}
+function setEditorCode(el,code) {
+  const l=lessonById(el.dataset.py), area=$('[data-py-code]',el);
+  area.value=code;
+  if(code===l.playground.code)delete state.code[l.id];else state.code[l.id]=code;
+  save();syncEditor(el);
+}
+function insertText(area,text) {
+  // execCommand keeps the browser's undo history; setRangeText is the fallback.
+  if(!document.execCommand('insertText',false,text)){area.setRangeText(text,area.selectionStart,area.selectionEnd,'end');area.dispatchEvent(new Event('input',{bubbles:true}));}
+}
+async function runPy(el) {
+  if(el.dataset.running)return;
+  const area=$('[data-py-code]',el), out=$('[data-py-output]',el), button=$('[data-py-run]',el);
+  el.dataset.running='true';el.dataset.ran='true';button.disabled=true;out.setAttribute('aria-busy','true');
+  out.className='py-output running';
+  out.textContent=pythonStatus()==='ready'?t('运行中…','Running…'):t('正在加载 Python，第一次需要几秒钟…','Loading Python. The first time takes a few seconds…');
+  try {
+    const result=await runPython(area.value,text=>{out.textContent=text;});
+    let text=result.output;
+    if(result.truncated)text+=`\n${t('…输出太长，只显示前 20000 个字符。','… The output is long; only the first 20,000 characters are shown.')}`;
+    if(result.timeout) {
+      out.className='py-output error';
+      out.textContent=`${text?`${text}\n`:''}${t(`运行超过 ${TIMEOUT_MS/1000} 秒，已经停止。检查循环能不能结束。`,`Stopped after ${TIMEOUT_MS/1000} seconds. Check that your loop can finish.`)}`;
+    } else if(result.error) {
+      const hint=errorHint(result.error.name);
+      out.className='py-output error';
+      out.innerHTML=`${escape(text?`${text}\n`:'')}${escape(result.error.text.trimEnd())}${hint?`<span class="py-hint">${t('提示：','Hint: ')}${escape(hint)}</span>`:''}`;
+    } else {
+      out.className='py-output ok';
+      out.textContent=text||t('（程序运行完了，但没有输出。用 print() 显示结果。）','(The program finished without output. Use print() to show a result.)');
+    }
+  } catch {
+    out.className='py-output error';
+    out.textContent=t('Python 运行环境没有加载成功，可能是网络暂时无法访问 CDN。可以稍后再点「运行」重试，下面先用固定演示继续学习。','The Python runtime could not load, possibly because the CDN is unreachable right now. Press Run later to retry; meanwhile, continue with the guided simulation below.');
+    const fallback=$('[data-py-fallback]',el);
+    if(fallback.hidden){fallback.innerHTML=miniCode(lessonById(el.dataset.py));fallback.hidden=false;}
+  } finally {
+    delete el.dataset.running;button.disabled=false;out.removeAttribute('aria-busy');
+  }
+}
 function predictionFeedback(l) {
   if(!Number.isInteger(state.predictions[l.id]))return '';
   return `<strong>${state.predictions[l.id]===l.prediction.answer?t('你的预测很准确。','Your prediction was right.'):t('这是一个值得验证的猜想。','That is a prediction worth investigating.')}</strong><p>${escape(l.prediction.explanation)}</p><button type="button" class="text-button" data-scroll="experiment">${t('现在去实验里验证','Now test it in the experiment')} ${icon('arrow')}</button>`;
@@ -202,7 +261,7 @@ function lessonView(id) {
   state.last=id;save();
   const m=modules.find(item=>item.id===l.module),idx=lessons.indexOf(l),next=lessons[idx+1];
   const steps=[['wonder',t('先想一想','Predict')],['concept',t('看懂概念','Understand')],['experiment',t('动手试试','Experiment')],['practice',t('检查理解','Check')]];
-  return `<a href="#/courses" class="back-link">${icon('arrow','flip')}${t('返回学习路径','Back to learning paths')}</a><div class="lesson-layout"><aside class="lesson-outline"><span class="small-muted">${m.title}</span><h2>${t('这一段学习旅程','This stage of your journey')}</h2>${m.lessons.map((key,i)=>`<a class="outline-item ${key===id?'active':''}" href="#/lesson/${key}" ${key===id?'aria-current="page"':''}><span>${completed(key)?icon('check'):i+1}</span>${lessonById(key).title}</a>`).join('')}<div class="outline-tip">${icon('spark')}${t('先预测，再验证。<br>给思考留一点时间。','Predict, then test.<br>Give yourself time to think.')}</div></aside><div class="lesson-main"><div class="lesson-heading"><div class="lesson-meta"><span>${m.title}</span><span>${icon('clock')}${t(`${l.duration} 分钟`,`${l.duration} min`)}</span><span>${completed(id)?t('已掌握','Mastered'):t('学习中','In progress')}</span></div><h1>${l.title}</h1><p>${l.summary}</p><button class="bookmark-button ${state.bookmarks.includes(id)?'saved':''}" data-bookmark="${id}" aria-pressed="${state.bookmarks.includes(id)}">${icon('bookmark')}${state.bookmarks.includes(id)?t('已收藏','Bookmarked'):t('收藏这节课','Bookmark lesson')}</button></div><nav class="lesson-steps" aria-label="${t('本课步骤','Lesson steps')}">${steps.map(([anchor,label],i)=>`<button data-scroll="${anchor}"><span>${i+1}</span>${label}</button>`).join('')}</nav><article class="lesson-article"><section class="wonder-box" id="wonder"><span class="section-number">01</span><div><span class="small-muted">${t('先想一想','Make a prediction')}</span><h2>${t('从一个问题开始','Start with a question')}</h2><p>${escape(l.intro)}</p><p class="wonder-reminder">${t('先停留几秒，想一个自己的答案。带着它继续探索。','Pause for a moment and form your own answer. Keep it in mind as you explore.')}</p>${predictionHTML(l)}</div></section><section class="concept-section" id="concept"><div class="section-title"><span class="section-number">02</span><h2>${t('一点点，把概念看清。','Build your understanding, step by step.')}</h2></div>${l.sections.map(s=>`<div class="concept-block"><h3>${s.title}</h3><p>${escape(s.body)}</p>${s.code?`<pre><code>${escape(s.code)}</code></pre>`:''}</div>`).join('')}</section><section class="lesson-experiment" id="experiment"><div class="section-title"><span class="section-number">03</span><div><h2>${t('轮到你动手了','Your turn to experiment')}</h2><p>${t('改一改输入，把你的预测变成一次实验。','Change an input and put your prediction to the test.')}</p></div></div>${l.lab?'<div id="lesson-lab"></div>':miniCode(l)}</section>${quizHTML(l)}${takeawaysHTML(l)}<details class="note-box"><summary>${icon('book')}${t('记下自己的理解','Write it in your own words')} <span>${t('笔记自动保存在本机','Notes save automatically in this browser')}</span></summary><label class="sr-only" for="lesson-note">${t('本课笔记','Lesson notes')}</label><textarea id="lesson-note" data-note="${l.id}" placeholder="${t('用自己的话说说，你今天发现了什么？','What did you discover today? Explain it in your own words.')}">${escape(state.notes[id]||'')}</textarea><span class="note-status" aria-live="polite"></span></details><div class="lesson-next"><a class="text-button" href="#/courses">${t('回到学习路径','Back to learning paths')}</a>${next?`<a class="button primary" href="#/lesson/${next.id}">${t(`下一课：${next.title}`,`Next: ${next.title}`)}${icon('arrow')}</a>`:`<a class="button primary" href="#/records">${t('看看我的学习记录','View my learning records')}${icon('arrow')}</a>`}</div></article></div></div>`;
+  return `<a href="#/courses" class="back-link">${icon('arrow','flip')}${t('返回学习路径','Back to learning paths')}</a><div class="lesson-layout"><aside class="lesson-outline"><span class="small-muted">${m.title}</span><h2>${t('这一段学习旅程','This stage of your journey')}</h2>${m.lessons.map((key,i)=>`<a class="outline-item ${key===id?'active':''}" href="#/lesson/${key}" ${key===id?'aria-current="page"':''}><span>${completed(key)?icon('check'):i+1}</span>${lessonById(key).title}</a>`).join('')}<div class="outline-tip">${icon('spark')}${t('先预测，再验证。<br>给思考留一点时间。','Predict, then test.<br>Give yourself time to think.')}</div></aside><div class="lesson-main"><div class="lesson-heading"><div class="lesson-meta"><span>${m.title}</span><span>${icon('clock')}${t(`${l.duration} 分钟`,`${l.duration} min`)}</span><span>${completed(id)?t('已掌握','Mastered'):t('学习中','In progress')}</span></div><h1>${l.title}</h1><p>${l.summary}</p><button class="bookmark-button ${state.bookmarks.includes(id)?'saved':''}" data-bookmark="${id}" aria-pressed="${state.bookmarks.includes(id)}">${icon('bookmark')}${state.bookmarks.includes(id)?t('已收藏','Bookmarked'):t('收藏这节课','Bookmark lesson')}</button></div><nav class="lesson-steps" aria-label="${t('本课步骤','Lesson steps')}">${steps.map(([anchor,label],i)=>`<button data-scroll="${anchor}"><span>${i+1}</span>${label}</button>`).join('')}</nav><article class="lesson-article"><section class="wonder-box" id="wonder"><span class="section-number">01</span><div><span class="small-muted">${t('先想一想','Make a prediction')}</span><h2>${t('从一个问题开始','Start with a question')}</h2><p>${escape(l.intro)}</p><p class="wonder-reminder">${t('先停留几秒，想一个自己的答案。带着它继续探索。','Pause for a moment and form your own answer. Keep it in mind as you explore.')}</p>${predictionHTML(l)}</div></section><section class="concept-section" id="concept"><div class="section-title"><span class="section-number">02</span><h2>${t('一点点，把概念看清。','Build your understanding, step by step.')}</h2></div>${l.sections.map((s,i)=>`<div class="concept-block"><h3>${s.title}</h3><p>${escape(s.body)}</p>${s.code?`<pre><code>${escape(s.code)}</code></pre>${l.playground?`<button class="text-button py-try" data-py-try="${i}">${icon('play')}${t('放进编辑器运行','Run this in the editor')}</button>`:''}`:''}</div>`).join('')}</section><section class="lesson-experiment" id="experiment"><div class="section-title"><span class="section-number">03</span><div><h2>${t('轮到你动手了','Your turn to experiment')}</h2><p>${l.playground?t('改一改代码，运行它，看看结果和你的预测是否一样。','Edit the code, run it, and see whether the result matches your prediction.'):t('改一改输入，把你的预测变成一次实验。','Change an input and put your prediction to the test.')}</p></div></div>${l.lab?'<div id="lesson-lab"></div>':l.playground?pythonLab(l):miniCode(l)}</section>${quizHTML(l)}${takeawaysHTML(l)}<details class="note-box"><summary>${icon('book')}${t('记下自己的理解','Write it in your own words')} <span>${t('笔记自动保存在本机','Notes save automatically in this browser')}</span></summary><label class="sr-only" for="lesson-note">${t('本课笔记','Lesson notes')}</label><textarea id="lesson-note" data-note="${l.id}" placeholder="${t('用自己的话说说，你今天发现了什么？','What did you discover today? Explain it in your own words.')}">${escape(state.notes[id]||'')}</textarea><span class="note-status" aria-live="polite"></span></details><div class="lesson-next"><a class="text-button" href="#/courses">${t('回到学习路径','Back to learning paths')}</a>${next?`<a class="button primary" href="#/lesson/${next.id}">${t(`下一课：${next.title}`,`Next: ${next.title}`)}${icon('arrow')}</a>`:`<a class="button primary" href="#/records">${t('看看我的学习记录','View my learning records')}${icon('arrow')}</a>`}</div></article></div></div>`;
 }
 function cardSearchText(g) {
   return [...zhContent.glossary,...enContent.glossary].filter(card=>cardId(card)===cardId(g)).map(card=>`${card.term} ${card.english} ${card.definition}`).join(' ');
@@ -219,7 +278,7 @@ function furtherHTML() {
   return `<section class="further-courses"><div class="section-heading"><div><h2>${t('继续向计算机科学深处走','Explore further into computer science')}</h2><p>${t('完成入门后，可以从这些参考讲义继续探索。','After the introductory lessons, continue with these external lecture notes.')}</p></div><span class="quiet-tag">${t('外部课程','External courses')}</span></div><div class="further-list">${list.map(c=>`<a href="${escape(c.url)}" target="_blank" rel="noopener noreferrer"><span class="further-level">${c.level}</span><div><h3>${c.title}</h3><p>${c.description}</p></div><span class="external-label">${t('查看讲义 ↗','Open notes ↗')}</span></a>`).join('')}</div></section>`;
 }
 function about() {
-  return `${pageHead(t('理解，从亲自探索开始。','Understanding starts with exploration.'),t('培玉 CS 是一个中英双语的计算机科学学习空间。','Peiyu CS is a bilingual learning space for computer science.'))}<article class="about-panel"><img src="./logo.svg" width="64" height="64" alt="${t('培玉','Peiyu')}"><h2>${t('把数学里的好奇，带进计算机科学。','Bring your mathematical curiosity into computer science.')}</h2><p>${t('我们借鉴「培玉高中数学」的学习方式，让你先观察一个问题，读懂一个概念，再通过实验和练习验证自己的理解。第一版从信息表示、Python 基础和算法开始，并参考 Boxi Yu 课程站的可交互讲义结构，为每节加入预测、逐步实验和自测。','Inspired by Peiyu High School Maths, each lesson starts with a question, explains an idea, then invites you to test your understanding through an experiment and a check. These introductory lessons cover information representation, Python basics and algorithms. Boxi Yu’s interactive lecture notes inform the predict–experiment–check structure.')}</p><h3>${t('这版可以做什么','What you can do here')}</h3><p>${t('九节入门课程、四个可交互实验、带解释的课内练习、知识卡片、课程收藏、笔记，以及在本机保存的学习记录。课程中的数值演示按固定规则运行；目前没有通用 Python 执行环境、账号同步或 AI 教师。','Explore nine introductory lessons and four interactive labs, answer questions with explanations, review concept cards, bookmark lessons and write notes. Progress is saved in this browser. The numerical examples are guided simulations; there is no general Python interpreter, account synchronisation or AI tutor.')}</p><h3>${t('中英文，都可以接着学','Continue learning in either language')}</h3><p>${t('随时用页面右上角的中文 / EN 切换语言。课程进度、练习选项、收藏、笔记与概念记忆共用同一份记录；笔记保留你自己写下的原文。','Use 中文 / EN in the top bar at any time. Your progress, answer selections, bookmarks, notes and remembered concepts belong to the same learning record in both languages. Your own notes stay exactly as you wrote them.')}</p><h3>${t('我们参考的学习体验','Learning experiences that inspired us')}</h3><div class="source-list">${sources.map(s=>`<a href="${escape(s.url)}" target="_blank" rel="noopener noreferrer"><span><strong>${s.title}</strong><small>${s.note}</small></span>${icon('arrow')}</a>`).join('')}</div><p class="small-muted">${t('以上站点是交互研究参考。本网站的中英双语讲解和实验为本原型编写，与这些课程没有隶属或认证关系。','These sites are references for interaction design. The bilingual explanations and experiments here were written for this learning space; Peiyu CS is not affiliated with or accredited by those courses.')}</p><a class="button primary" href="#/courses">${t('开始探索','Start exploring')}${icon('arrow')}</a></article>`;
+  return `${pageHead(t('理解，从亲自探索开始。','Understanding starts with exploration.'),t('培玉 CS 是一个中英双语的计算机科学学习空间。','Peiyu CS is a bilingual learning space for computer science.'))}<article class="about-panel"><img src="./logo.svg" width="64" height="64" alt="${t('培玉','Peiyu')}"><h2>${t('把数学里的好奇，带进计算机科学。','Bring your mathematical curiosity into computer science.')}</h2><p>${t('我们借鉴「培玉高中数学」的学习方式，让你先观察一个问题，读懂一个概念，再通过实验和练习验证自己的理解。第一版从信息表示、Python 基础和算法开始，并参考 Boxi Yu 课程站的可交互讲义结构，为每节加入预测、逐步实验和自测。','Inspired by Peiyu High School Maths, each lesson starts with a question, explains an idea, then invites you to test your understanding through an experiment and a check. These introductory lessons cover information representation, Python basics and algorithms. Boxi Yu’s interactive lecture notes inform the predict–experiment–check structure.')}</p><h3>${t('这版可以做什么','What you can do here')}</h3><p>${t('九节入门课程、四个可交互实验、带解释的课内练习、知识卡片、课程收藏、笔记，以及在本机保存的学习记录。Python 课程内置在浏览器里运行的真实 Python（Pyodide），可以修改代码并立即运行；其它数值演示按固定规则运行。目前没有账号同步或 AI 教师。','Explore nine introductory lessons and four interactive labs, answer questions with explanations, review concept cards, bookmark lessons and write notes. Progress is saved in this browser. The Python lessons include real Python that runs in your browser (Pyodide), so you can edit code and run it straight away; the other numerical examples are guided simulations. There is no account synchronisation or AI tutor.')}</p><h3>${t('中英文，都可以接着学','Continue learning in either language')}</h3><p>${t('随时用页面右上角的中文 / EN 切换语言。课程进度、练习选项、收藏、笔记与概念记忆共用同一份记录；笔记保留你自己写下的原文。','Use 中文 / EN in the top bar at any time. Your progress, answer selections, bookmarks, notes and remembered concepts belong to the same learning record in both languages. Your own notes stay exactly as you wrote them.')}</p><h3>${t('我们参考的学习体验','Learning experiences that inspired us')}</h3><div class="source-list">${sources.map(s=>`<a href="${escape(s.url)}" target="_blank" rel="noopener noreferrer"><span><strong>${s.title}</strong><small>${s.note}</small></span>${icon('arrow')}</a>`).join('')}</div><p class="small-muted">${t('以上站点是交互研究参考。本网站的中英双语讲解和实验为本原型编写，与这些课程没有隶属或认证关系。','These sites are references for interaction design. The bilingual explanations and experiments here were written for this learning space; Peiyu CS is not affiliated with or accredited by those courses.')}</p><a class="button primary" href="#/courses">${t('开始探索','Start exploring')}${icon('arrow')}</a></article>`;
 }
 function localizeStaticChrome() {
   syncDocumentLanguage();
@@ -266,6 +325,7 @@ function captureView() {
     radios:$$('[data-quiz], [data-prediction]').map(form=>({kind:form.hasAttribute('data-quiz')?'quiz':'prediction',id:form.dataset.quiz||form.dataset.prediction,choice:$('input:checked',form)?.value,hint:form.dataset.feedback==='hint'})),
     noteOpen:$('.note-box')?.open,
     noteValue:$('#lesson-note')?.value,
+    py:$$('[data-py]').filter(el=>el.dataset.ran).map(el=>({id:el.dataset.py,output:$('[data-py-output]',el).innerHTML,className:$('[data-py-output]',el).className,fallback:!$('[data-py-fallback]',el).hidden})),
     mini:$$('[data-mini]').map(el=>({id:el.dataset.mini,value:$('[data-mini-input]',el).value,ran:el.hasAttribute('data-last-run-value'),lastRunValue:el.dataset.lastRunValue})),
     labState:cleanups.find(fn=>typeof fn?.getState==='function')?.getState(),
     wikiQuery:$('#wiki-search')?.value,
@@ -285,6 +345,12 @@ function restoreView(snapshot) {
   }
   if($('.note-box') && snapshot.noteOpen)$('.note-box').open=true;
   if($('#lesson-note') && snapshot.noteValue!==undefined)$('#lesson-note').value=snapshot.noteValue;
+  for(const draft of snapshot.py||[]) {
+    const el=$(`[data-py="${draft.id}"]`);if(!el)continue;
+    el.dataset.ran='true';
+    const out=$('[data-py-output]',el);out.innerHTML=draft.output;out.className=draft.className;
+    if(draft.fallback){const fallback=$('[data-py-fallback]',el);fallback.innerHTML=miniCode(lessonById(draft.id));fallback.hidden=false;}
+  }
   for(const draft of snapshot.mini||[]) {
     const el=$(`[data-mini="${draft.id}"]`);if(!el)continue;
     const input=$('[data-mini-input]',el);
@@ -332,6 +398,7 @@ function render(options={}) {
   if(name==='lesson') {
     const l=lessonById(route.parts[1]);
     if(l?.lab)cleanups.push(mountLab($('#lesson-lab'),l.lab,{initialState:snapshot?.labState}));
+    if(l?.playground)cleanups.push(onPythonStatus(status=>$$('[data-py-status]').forEach(el=>{el.dataset.state=status;el.textContent=pyStatusText(status);})));
     if(!snapshot && route.params.has('section'))requestAnimationFrame(()=>document.getElementById(route.params.get('section'))?.scrollIntoView({block:'start'}));
   }
   $$('[data-prediction]').forEach(form=>form.addEventListener('submit',event=>{
@@ -370,11 +437,15 @@ document.addEventListener('click',event=>{
   if(action.dataset.bookmark){const id=action.dataset.bookmark,exists=state.bookmarks.includes(id);state.bookmarks=exists?state.bookmarks.filter(value=>value!==id):[...state.bookmarks,id];save();action.classList.toggle('saved',!exists);action.setAttribute('aria-pressed',String(!exists));action.innerHTML=icon('bookmark')+(exists?t('收藏这节课','Bookmark lesson'):t('已收藏','Bookmarked'));toast(exists?t('已取消收藏','Bookmark removed.'):t('已收藏，可在「我的学习」找到。','Bookmarked. Find it in My learning.'));}
   if(action.dataset.hint)showHint(action.closest('form'),action.dataset.hint);
   if(action.hasAttribute('data-mini-run'))runMini(action.closest('[data-mini]'));
+  if(action.hasAttribute('data-py-run'))runPy(action.closest('[data-py]'));
+  if(action.hasAttribute('data-py-reset')){const el=action.closest('[data-py]');setEditorCode(el,lessonById(el.dataset.py).playground.code);const out=$('[data-py-output]',el);out.className='py-output';out.textContent=pyPrompt();delete el.dataset.ran;$('[data-py-code]',el).focus();}
+  if(action.dataset.pyTry!==undefined){const l=lessonById(route.parts[1]),el=$('[data-py]');if(l&&el){setEditorCode(el,l.sections[Number(action.dataset.pyTry)].code);$('#experiment').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'start'});$('[data-py-code]',el).focus({preventScroll:true});runPy(el);}}
   if(action.dataset.remember){const id=action.dataset.remember,has=state.cards.includes(id);state.cards=has?state.cards.filter(value=>value!==id):[...state.cards,id];if(!has)log('remember',id);save();action.setAttribute('aria-pressed',String(!has));action.innerHTML=(has?t('我记住了','I remember this'):t('再复习一次','Review again'))+icon('check');$('.glossary-top span',action.closest('article')).textContent=has?t('回忆一下','Try to recall'):t('已记住','Remembered');$('.wiki-counter span:last-child').textContent=t(`${state.cards.length} 张已记住`,`${state.cards.length} remembered`);toast(has?t('已放回复习列表','Added back to your review list.'):t('这个概念已记住。','Concept marked as remembered.'));}
   if(action.hasAttribute('data-export')){const blob=new Blob([JSON.stringify({app:'Peiyu CS',language:getLanguage(),exportedAt:new Date().toISOString(),...state},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=t('培玉CS-学习记录.json','peiyu-cs-learning-records.json');link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast(t('学习记录已导出。','Learning records exported.'));}
   if(action.hasAttribute('data-reset')&&confirm(t('清除当前浏览器里的课程进度、错题、收藏和笔记？此操作无法撤销。建议先导出记录。','Clear lesson progress, answers, bookmarks and notes in this browser? This cannot be undone. Export your records first if you want to keep a copy.'))){state=fresh();save();render();toast(t('本机记录已清除，可以重新出发。','Local records cleared. You can start afresh.'));}
 });
 document.addEventListener('input',event=>{
+  if(event.target.hasAttribute?.('data-py-code')){const el=event.target.closest('[data-py]'),l=lessonById(el.dataset.py);if(event.target.value===l.playground.code)delete state.code[l.id];else state.code[l.id]=event.target.value;save();syncEditor(el);return;}
   if(event.target.dataset.note){state.notes[event.target.dataset.note]=event.target.value;save();$('.note-status').textContent=t('已保存','Saved');}
 });
 function openSearch() {
@@ -400,3 +471,27 @@ document.addEventListener('keydown',event=>{
 });
 window.addEventListener('hashchange',render);
 render();
+
+// Editor keys: Tab indents, Enter keeps indentation, Ctrl/⌘+Enter runs.
+// Esc then Tab leaves the editor, so keyboard users are never trapped.
+document.addEventListener('keydown',event=>{
+  const area=event.target.closest?.('[data-py-code]');if(!area)return;
+  if(event.isComposing||event.keyCode===229)return; // Chinese IME is choosing characters.
+  if(event.key==='Escape'){area.dataset.tabRelease='true';return;}
+  const released=area.dataset.tabRelease;delete area.dataset.tabRelease;
+  if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();runPy(area.closest('[data-py]'));return;}
+  if(event.key==='Tab'&&!released) {
+    event.preventDefault();
+    if(!event.shiftKey){insertText(area,'    ');return;}
+    const caret=area.selectionStart,start=area.value.lastIndexOf('\n',caret-1)+1,width=area.value.slice(start,start+4).match(/^ */)[0].length;
+    if(width){area.setSelectionRange(start,start+width);insertText(area,'');area.setSelectionRange(Math.max(start,caret-width),Math.max(start,caret-width));}
+    return;
+  }
+  if(event.key==='Enter'&&!event.shiftKey&&!event.altKey&&area.selectionStart===area.selectionEnd) {
+    const line=area.value.slice(area.value.lastIndexOf('\n',area.selectionStart-1)+1,area.selectionStart);
+    const indent=line.match(/^ */)[0]+(/:\s*$/.test(line)?'    ':'');
+    if(indent){event.preventDefault();insertText(area,`\n${indent}`);}
+  }
+});
+document.addEventListener('focusin',event=>{if(event.target.hasAttribute?.('data-py-code'))preloadPython();});
+document.addEventListener('focusout',event=>{if(event.target.hasAttribute?.('data-py-code'))delete event.target.dataset.tabRelease;});
